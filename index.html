@@ -14,7 +14,8 @@
 	
 
     <style>
-        body {
+        /* 🔹 General Page Styling */
+body {
     font-family: Arial, sans-serif;
     background-color: #f4f4f9;
     color: #333;
@@ -23,27 +24,26 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    width: 100%;
 }
 
-/* 🔹 Make the Container Responsive */
+/* 🔹 Responsive Container */
 .container {
-    width: 100%;
+    width: 95%;
     max-width: 900px;
     background: white;
     padding: 20px;
     border-radius: 10px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     margin-bottom: 20px;
-    box-sizing: border-box;
 }
 
-/* 🔹 Machine Section Responsive */
+/* 🔹 Machine Section */
 .machine {
     width: 100%;
     margin-bottom: 20px;
     border-bottom: 1px solid #ddd;
     padding-bottom: 10px;
-    box-sizing: border-box;
 }
 .machine:last-child { border-bottom: none; }
 .machine h2 {
@@ -52,14 +52,15 @@
     flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    font-size: 16px;
+    font-size: 18px;
+    gap: 10px;
 }
 
-/* 🔹 Buttons - Better Spacing & Mobile Friendly */
+/* 🔹 Buttons */
 button {
-    padding: 10px 16px;
-    border-radius: 5px;
-    font-size: 14px;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 16px;
     font-weight: bold;
     cursor: pointer;
     transition: 0.3s;
@@ -69,40 +70,42 @@ button {
     text-align: center;
 }
 
-/* 🔹 Responsive Reset Machine Button */
+/* 🔹 Reset Machine Button */
 .reset-machine-btn {
     background-color: #e74c3c;
     color: white;
 }
 .reset-machine-btn:hover { background-color: #c0392b; }
 
-/* 🔹 Responsive Export Button */
+/* 🔹 Export Button */
 .export-btn {
     background-color: #27ae60;
     color: white;
+    margin-top: 10px;
 }
 .export-btn:hover { background-color: #229954; }
 
-/* 🔹 Dropdown & Date Inputs - Mobile Friendly */
+/* 🔹 Dropdowns & Inputs */
 select, input[type="datetime-local"] {
-    padding: 8px;
-    font-size: 14px;
+    padding: 10px;
+    font-size: 16px;
     border: 1px solid #ccc;
     border-radius: 4px;
     outline: none;
     width: 100%;
     max-width: 300px;
     margin-bottom: 10px;
+    text-align: center;
 }
-select { background-color: white; cursor: pointer; }
 
-/* 🔹 Make Stop Reasons Stack on Small Screens */
+/* 🔹 Stop Reasons - Make it Wrap on Small Screens */
 .stop-reason {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 10px;
+    gap: 10px;
 }
 .stop-reason div { 
     flex-grow: 1;
@@ -113,7 +116,30 @@ select { background-color: white; cursor: pointer; }
 .stop-reason button { 
     width: 100%;
     max-width: 120px;
-    margin: 5px 0;
+}
+
+/* 🔹 Mobile Adjustments */
+@media (max-width: 768px) {
+    h1 {
+        font-size: 20px;
+        text-align: center;
+    }
+
+    .machine h2 {
+        flex-direction: column;
+        align-items: flex-start;
+        font-size: 16px;
+    }
+
+    .stop-reason {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    button {
+        font-size: 14px;
+        padding: 10px;
+    }
 }
 
     </style>
