@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Machine Stop Time Tracker</title>
+
+    <!-- ✅ Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+
+	
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { color: #2c3e50; }
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .machine { margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+        .machine:last-child { border-bottom: none; }
+        .machine h2 { color: #2980b9; display: flex; justify-content: space-between; align-items: center; }
+        .stop-reason { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .stop-reason div { flex-grow: 1; text-align: left; font-weight: bold; }
+        .stop-reason button { padding: 10px 15px; border-radius: 5px; cursor: pointer; width: 120px; margin: 0 10px; }
+        .reset-all-btn, .history-btn { padding: 15px 20px; border-radius: 5px; cursor: pointer; margin-top: 20px; }
+	/* 🔹 Reset Machine Button - Improved Look */
+.reset-machine-btn {
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: 0.3s;
+}
+.reset-machine-btn:hover {
+    background-color: #c0392b;
+}
+
+/* 🔹 Export to Excel Button - Improved Look */
+.export-btn {
+    background-color: #27ae60;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: 0.3s;
+}
+.export-btn:hover {
+    background-color: #229954;
+}
+
+/* 🔹 Dropdown & Date Inputs - Improved Look */
+select, input[type="datetime-local"] {
+    padding: 6px;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    outline: none;
+}
+select {
+    background-color: white;
+    cursor: pointer;
+}
+
+    </style>
+</head>
+<body>
+    <h1>Machine Stop Time Tracker</h1>
+    <div class="container" id="machines"></div>
+	<label for="machineSelect">Select Machine:</label>
+<select id="machineSelect">
+    <option value="all">All Machines</option>
+    <option value="B2">B2</option>
+    <option value="B3">B3</option>
+    <option value="B4">B4</option>
+    <option value="FS02">FS02</option>
+    <option value="FS05">FS05</option>
+    <option value="FS04">FS04</option>
+</select>
+
+<label for="startTime">Start Time:</label>
+<input type="datetime-local" id="startTime">
+
+<label for="endTime">End Time:</label>
+<input type="datetime-local" id="endTime">
+
+    <button class="export-btn" onclick="exportToExcel()">Export to Excel</button>
+
+    <script>
+        // 🔥 Initialize Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyCZ-h0ohwYKvo51uprUjH9pDD-bTyXPuaQ",
+            authDomain: "tracker01-51c65.firebaseapp.com",
+            databaseURL: "https://tracker01-51c65-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "tracker01-51c65",
+            storageBucket: "tracker01-51c65.firebasestorage.app",
+            messagingSenderId: "139537000407",
+            appId: "1:139537000407:web:5a8bf5dce6c77d60d54d92",
+            measurementId: "G-0FE2J3C172"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        const machines = ["B2", "B3", "B4", "FS02", "FS05", "FS04"];
+        const reasons = ["Change Lot", "Machine / Mould Problem", "Production Off / Lack of Man Power", "Calibration / Routine Maintenance", "Quality Issue", "Button Stuck / Double Clamp", "Others"];
+        let stopTimes = {};
+
+	let activeTimers = {};  // Stores intervals for real-time updates
+
+
+        function init() {
+    const machineContainer = document.getElementById('machines');
+    machines.forEach(machine => {
+        stopTimes[machine] = {};
+        const machineDiv = document.createElement('div');
+        machineDiv.className = 'machine';
+        machineDiv.innerHTML = `
+            <h2>
+                <span>${machine}</span>
+                <span id="${machine}-lot-number" style="margin: 0 20px; font-weight: bold; color: #d35400;">Lot: -</span>
+                <span id="${machine}-total-time">00:00:00</span>
+            </h2>
+            <button class="reset-machine-btn" onclick="resetMachine('${machine}')">Reset Machine</button>
+
+            <input type="text" id="lot-${machine}" placeholder="New Lot Number" style="display:none;">
+        `;
+
+        reasons.forEach(reason => {
+            stopTimes[machine][reason] = { start: null, elapsed: 0 };
+
+            // ✅ Ensure each stop clock exists only once
+            if (!document.getElementById(`${machine}-${reason}-stop-clock`)) {
+                const reasonDiv = document.createElement('div');
+                reasonDiv.className = 'stop-reason';
+                reasonDiv.innerHTML = `
+                    <div>${reason}</div>
+                    <span id="${machine}-${reason}-time">00:00:00</span>
+                    <button id="start-${machine}-${reason}" onclick="startStop('${machine}', '${reason}')">Start</button>
+                    <button id="stop-${machine}-${reason}" onclick="stopStop('${machine}', '${reason}')" disabled>Stop</button>
+                    
+                    <span id="${machine}-${reason}-stop-clock" class="stop-clock">00:00:00</span> <!-- Individual Reason Clock per Stop -->
+                `;
+                machineDiv.appendChild(reasonDiv);
+            }
+        });
+
+        machineContainer.appendChild(machineDiv);
+    });
+
+    loadState();
+}
+
+       function startStop(machine, reason) {
+    console.log(`▶️ startStop() called for ${machine} - ${reason}`);
+
+    if (!stopTimes[machine]) stopTimes[machine] = {};
+    if (!stopTimes[machine][reason]) stopTimes[machine][reason] = { start: null, elapsed: 0 };
+
+    // ✅ Ask for a remark when starting
+    const remark = prompt("Enter a remark (optional):") || "-"; // Allow blank remarks
+
+    const startTime = Date.now();
+    const formattedStartTime = formatDateTime(startTime); // ✅ Format as "yyyy-mm-dd hh:mm:ss"
+
+    // ✅ Send WhatsApp message on start before Firebase update
+    const phoneNumber = "60175347817"; // ✅ Change this to the actual recipient phone number
+    const message = `🚨 *${machine} STOPPED* 🚨\n` +
+                    `Reason: ${reason}\n` +
+                    `Start Time: ${formattedStartTime}\n` +
+                    `Remark: ${remark}`;
+    sendWhatsAppMessage(phoneNumber, message);
+
+    // ✅ Save data in Firebase
+    db.ref(`machineTracker/${machine}/${reason}`).update({
+        start: startTime,
+        elapsed: stopTimes[machine][reason].elapsed,
+        remark: remark // ✅ Store remark in Firebase
+    }).then(() => {
+        console.log(`✅ Firebase confirmed start time for ${machine} - ${reason}: ${formattedStartTime}, Remark: ${remark}`);
+
+        stopTimes[machine][reason].start = startTime;
+
+        updateButtons(machine, reason, true);
+        updateDisplay(machine, reason);
+        updateTotalMachineClock(machine);
+    }).catch(error => console.error(`❌ Firebase Start Time Save Error: ${error}`));
+}
+
+      function stopStop(machine, reason) {
+    console.log(`🛑 stopStop() called for ${machine} - ${reason}`);
+
+    if (!stopTimes[machine] || !stopTimes[machine][reason]) {
+        console.warn(`⚠️ stopStop() could not find data for ${machine} - ${reason}`);
+        return;
+    }
+
+    const picName = prompt("Enter PIC Name:"); // ✅ Ask for PIC Name
+    if (!picName) {
+        alert("PIC Name is required!");
+        return;
+    } // ✅ Missing brace added here
+
+    db.ref(`machineTracker/${machine}/${reason}`).once("value", snapshot => {
+        const data = snapshot.val();
+        if (!data || !data.start) {
+            console.warn(`⚠️ stopStop() called but no active start time in Firebase for ${machine} - ${reason}`);
+            return;
+        }
+
+        const startTime = data.start;
+        const stopTime = Date.now();
+        const elapsedSeconds = Math.floor((stopTime - startTime) / 1000);
+        const elapsedTimeFormatted = formatElapsedTime(elapsedSeconds);
+
+        const record = {
+            machine: machine,
+            lotNumber: document.getElementById(`${machine}-lot-number`).textContent.replace("Lot: ", "") || "-",
+            reason: reason,
+            startTime: startTime,
+            stopTime: stopTime,
+            elapsedTime: elapsedTimeFormatted,
+            picName: picName // ✅ Added PIC name to the record
+        };
+
+        // ✅ Store the completed stop record in "historicalData"
+        const historyRef = db.ref(`historicalData/${machine}`).push();
+        historyRef.set(record).then(() => {
+            console.log(`✅ Historical data saved for ${machine} - ${reason}`);
+
+            // ✅ Now reset the stop reason in Firebase
+            db.ref(`machineTracker/${machine}/${reason}`).update({ elapsed: elapsedSeconds, start: null }).then(() => {
+                console.log(`✅ Stopped ${machine} - ${reason}, Total Elapsed Time: ${elapsedTimeFormatted}`);
+
+                stopTimes[machine][reason].elapsed = elapsedSeconds;
+                stopTimes[machine][reason].start = null;
+
+                updateDisplay(machine, reason);
+                updateTotalMachineClock(machine);
+                updateButtons(machine, reason, false);
+		
+		        // ✅ Send WhatsApp message on stop
+                const phoneNumber = "60175347817"; // ✅ Change this to the actual recipient phone number
+                const formattedStopTime = formatDateTime(stopTime); // ✅ Format stop time
+                const message = `✅ *${machine} RESUMED* ✅\n` +
+                                `PIC Name: ${picName}\n` +
+                                `Stop Time: ${formattedStopTime}\n` +
+                                `Elapsed Time: ${elapsedTimeFormatted}`;
+                sendWhatsAppMessage(phoneNumber, message);
+
+                // ✅ Reset "Individual Reason Clock per Stop"
+                const stopClockElement = document.getElementById(`${machine}-${reason}-stop-clock`);
+                if (stopClockElement) {
+                    stopClockElement.textContent = "00:00:00";
+                    if (activeTimers[`stop-clock-${machine}-${reason}`]) {
+                        clearInterval(activeTimers[`stop-clock-${machine}-${reason}`]);
+                        delete activeTimers[`stop-clock-${machine}-${reason}`];
+                    }
+                } else {
+                    console.warn(`⚠️ Stop clock element missing for ${machine} - ${reason}`);
+                }
+            }).catch(error => console.error(`❌ Firebase Stop Time Save Error: ${error}`));
+        }).catch(error => console.error(`❌ Historical Data Save Error: ${error}`));
+    });
+}
+
+      function loadState() {
+    db.ref("machineTracker").once("value", snapshot => {
+        if (snapshot.exists()) {
+            stopTimes = snapshot.val() || {};
+
+            machines.forEach(machine => {
+                if (!stopTimes[machine]) stopTimes[machine] = {};
+
+                // ✅ Retrieve Lot Number from Firebase
+                const lotNumber = stopTimes[machine].lotNumber || "-";
+                document.getElementById(`${machine}-lot-number`).textContent = `Lot: ${lotNumber}`;
+
+                reasons.forEach(reason => {
+                    if (!stopTimes[machine][reason]) {
+                        stopTimes[machine][reason] = { start: null, elapsed: 0 };
+                    }
+
+                    if (isNaN(stopTimes[machine][reason].elapsed)) {
+                        stopTimes[machine][reason].elapsed = 0;
+                    }
+
+                    updateDisplay(machine, reason);
+                    const isRunning = !!stopTimes[machine][reason].start;
+                    updateButtons(machine, reason, isRunning);
+                });
+
+                updateTotalMachineClock(machine);
+            });
+
+            console.log("✅ Firebase Data Loaded Successfully", stopTimes);
+        } else {
+            console.warn("⚠️ No data in Firebase. Initializing...");
+        }
+    });
+}
+
+	function formatTime(seconds) {
+    if (isNaN(seconds) || seconds < 0) seconds = 0;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+function updateButtons(machine, activeReason, isRunning) {
+    Object.keys(stopTimes[machine]).forEach(reason => {
+        const startButton = document.getElementById(`start-${machine}-${reason}`);
+        const stopButton = document.getElementById(`stop-${machine}-${reason}`);
+
+        if (!startButton || !stopButton) return;
+
+        if (reason === activeReason) {
+            if (isRunning) {
+                // ✅ If running, disable Start and enable Stop
+                startButton.disabled = true;
+                stopButton.disabled = false;
+            } else {
+                // ✅ If stopped, enable Start and disable Stop
+                startButton.disabled = false;
+                stopButton.disabled = true;
+            }
+        } else {
+            // ✅ Other Start buttons in the same machine should be disabled if any reason is running
+            startButton.disabled = isRunning;
+            stopButton.disabled = true; // Other Stop buttons should remain disabled
+        }
+    });
+}
+
+        function updateDisplay(machine, reason) {
+    let elapsed = stopTimes[machine][reason]?.elapsed ?? 0;
+
+    if (isNaN(elapsed) || elapsed < 0) {
+        console.warn(`⚠️ Found NaN in UI for ${machine} - ${reason}. Resetting.`);
+        elapsed = 0;
+    }
+
+    // ✅ If the reason is running, update the time in real-time
+    if (stopTimes[machine][reason].start) {
+        if (activeTimers[`reason-clock-${machine}-${reason}`]) clearInterval(activeTimers[`reason-clock-${machine}-${reason}`]);
+
+        activeTimers[`reason-clock-${machine}-${reason}`] = setInterval(() => {
+            if (stopTimes[machine][reason].start) {
+                const totalElapsed = Math.floor((Date.now() - stopTimes[machine][reason].start) / 1000) + stopTimes[machine][reason].elapsed;
+                document.getElementById(`${machine}-${reason}-time`).textContent = formatTime(totalElapsed);
+            }
+        }, 1000);
+    } else {
+        document.getElementById(`${machine}-${reason}-time`).textContent = formatTime(elapsed);
+    }
+}
+
+function updateTotalMachineClock(machine) {
+    if (activeTimers[`total-${machine}`]) clearInterval(activeTimers[`total-${machine}`]);
+
+    function calculateAndUpdate() {
+        let totalElapsed = 0;
+        let hasRunningTimers = false;
+
+        Object.keys(stopTimes[machine]).forEach(reason => {
+            let elapsed = stopTimes[machine][reason]?.elapsed ?? 0; // ✅ Ensure elapsed is always a valid number
+
+            if (isNaN(elapsed)) {
+                console.warn(`⚠️ Found NaN in ${machine} - ${reason}. Resetting to 0.`);
+                elapsed = 0;
+                stopTimes[machine][reason].elapsed = 0; // ✅ Fix in local state
+            }
+
+            if (stopTimes[machine][reason].start) {
+                hasRunningTimers = true;
+                totalElapsed += Math.floor((Date.now() - stopTimes[machine][reason].start) / 1000) + elapsed;
+            } else {
+                totalElapsed += elapsed;
+            }
+        });
+
+        console.log(`⏳ Updating Total Time for ${machine}: ${totalElapsed} seconds`);
+        document.getElementById(`${machine}-total-time`).textContent = formatTime(totalElapsed);
+
+        if (!hasRunningTimers) {
+            console.log(`✅ No active timers. Stopping total clock update for ${machine}`);
+            clearInterval(activeTimers[`total-${machine}`]);
+            delete activeTimers[`total-${machine}`];
+        }
+    }
+
+    calculateAndUpdate(); // ✅ Immediate update when called
+
+    activeTimers[`total-${machine}`] = setInterval(calculateAndUpdate, 1000);
+}
+
+function resetMachine(machine) {
+    const password = prompt("Enter password to reset:");
+    if (password !== "1234") { 
+        alert("Incorrect password!");
+        return;
+    }
+
+    const lotInput = document.getElementById(`lot-${machine}`);
+    lotInput.style.display = "inline";
+    lotInput.focus();
+
+    lotInput.removeEventListener("keypress", lotInput.handleKeyPress);
+
+    lotInput.handleKeyPress = function (event) {
+        if (event.key === "Enter") { 
+            const newLotNumber = lotInput.value.trim();
+            if (!newLotNumber) {
+                alert("Lot number cannot be empty!");
+                return;
+            }
+
+            if (confirm(`Confirm reset for Machine ${machine} with New Lot Number: ${newLotNumber}?`)) {
+                let resetData = {};
+                reasons.forEach(reason => {
+                    let safeKey = sanitizeKey(reason);
+                    resetData[safeKey] = { start: null, elapsed: 0 };
+                });
+
+                // ✅ Save Lot Number in Firebase
+                resetData["lotNumber"] = newLotNumber;
+
+                db.ref(`machineTracker/${machine}`).set(resetData).then(() => {
+                    console.log(`✅ Firebase reset for ${machine} completed.`);
+
+                    Object.keys(stopTimes[machine]).forEach(reason => {
+                        stopTimes[machine][reason].start = null;
+                        stopTimes[machine][reason].elapsed = 0;
+
+                        const reasonTime = document.getElementById(`${machine}-${reason}-time`);
+                        if (reasonTime) reasonTime.textContent = "00:00:00";
+
+                        const stopClock = document.getElementById(`${machine}-${reason}-stop-clock`);
+                        if (stopClock) stopClock.textContent = "00:00:00";
+                    });
+
+                    document.getElementById(`${machine}-total-time`).textContent = "00:00:00";
+
+                    // ✅ Update Lot Number Display
+                    document.getElementById(`${machine}-lot-number`).textContent = `Lot: ${newLotNumber}`;
+
+                    alert(`Machine ${machine} reset successfully! New Lot Number: ${newLotNumber}`);
+
+                    lotInput.style.display = "none";
+                    lotInput.value = "";
+                    lotInput.removeEventListener("keypress", lotInput.handleKeyPress);
+                }).catch(error => {
+                    console.error(`❌ Firebase Reset Error for ${machine}: ${error}`);
+                    alert("Reset failed. Please try again.");
+                });
+            }
+        }
+    };
+
+    lotInput.addEventListener("keypress", lotInput.handleKeyPress);
+}
+
+
+// ✅ Helper function to sanitize Firebase keys
+function sanitizeKey(key) {
+    return key.replace(/[.#$\/\[\]]/g, "_"); // Replaces invalid characters
+}
+
+
+function exportToExcel() {
+    const machineSelect = document.getElementById("machineSelect");
+    const startInput = document.getElementById("startTime");
+    const endInput = document.getElementById("endTime");
+
+    if (!machineSelect || !startInput || !endInput) {
+        alert("Error: Date filters or machine selection are missing in the HTML.");
+        return;
+    }
+
+    const selectedMachine = machineSelect.value;
+    const startTime = new Date(startInput.value).getTime();
+    const endTime = new Date(endInput.value).getTime();
+
+    if (isNaN(startTime) || isNaN(endTime)) {
+        alert("Please select a valid date range!");
+        return;
+    }
+
+    db.ref("historicalData").once("value", snapshot => {
+        if (!snapshot.exists()) {
+            alert("No historical data found!");
+            return;
+        }
+
+        const workbook = XLSX.utils.book_new();
+        let allData = [];
+
+        snapshot.forEach(machineSnapshot => {
+            const machineName = machineSnapshot.key;
+            if (selectedMachine !== "all" && machineName !== selectedMachine) return; // Filter by machine
+
+            const machineData = [];
+
+            machineSnapshot.forEach(entrySnapshot => {
+                const data = entrySnapshot.val();
+                const startTimestamp = data.startTime || 0;
+
+                // Filter records by date range
+                if (startTimestamp >= startTime && startTimestamp <= endTime) {
+                    machineData.push({
+                        Machine: machineName,
+                        LotNumber: data.lotNumber || "-",
+                        Reason: data.reason,
+                        StartTime: formatDateTime(startTimestamp),
+                        StopTime: formatDateTime(data.stopTime || startTimestamp),
+                        ElapsedTime: data.elapsedTime || "00:00:00",
+                        PICName: data.picName || "-",
+                        Remark: data.remark || "-" // ✅ Include Remark in Excel
+                    });
+                }
+            });
+
+            if (machineData.length > 0) {
+                allData = allData.concat(machineData);
+                const worksheet = XLSX.utils.json_to_sheet(machineData);
+                XLSX.utils.book_append_sheet(workbook, worksheet, machineName);
+            }
+        });
+
+        if (allData.length > 0) {
+            if (selectedMachine === "all") {
+                const allMachinesSheet = XLSX.utils.json_to_sheet(allData);
+                XLSX.utils.book_append_sheet(workbook, allMachinesSheet, "All Machines");
+            }
+            XLSX.writeFile(workbook, "Machine_Stop_History.xlsx");
+        } else {
+            alert("No records found in the selected date range!");
+        }
+    });
+}
+
+// ✅ Convert timestamp to "YYYY-MM-DD HH:MM:SS"
+function formatDateTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.getFullYear() + "-" +
+           String(date.getMonth() + 1).padStart(2, "0") + "-" +
+           String(date.getDate()).padStart(2, "0") + " " +
+           String(date.getHours()).padStart(2, "0") + ":" +
+           String(date.getMinutes()).padStart(2, "0") + ":" +
+           String(date.getSeconds()).padStart(2, "0");
+}
+
+// ✅ Convert seconds to "HH:MM:SS"
+function formatElapsedTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return String(hours).padStart(2, "0") + ":" +
+           String(minutes).padStart(2, "0") + ":" +
+           String(secs).padStart(2, "0");
+}
+
+
+function sendWhatsAppMessage(phoneNumber, message) {
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappURL = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+    window.open(whatsappURL, "_blank");
+}
+
+
+
+
+        init();
+    </script>
+</body>
+</html>
