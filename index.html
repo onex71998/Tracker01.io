@@ -263,6 +263,7 @@ select, input[type="datetime-local"] {
 
         updateButtons(machine, reason, true);
         updateDisplay(machine, reason);
+	updateTotalReasonClock(machine, reason);
         updateTotalMachineClock(machine);
     }).catch(error => console.error(`❌ Firebase Start Time Save Error: ${error}`));
 }
@@ -312,10 +313,11 @@ select, input[type="datetime-local"] {
             db.ref(`machineTracker/${machine}/${reason}`).update({ elapsed: elapsedSeconds, start: null }).then(() => {
                 console.log(`✅ Stopped ${machine} - ${reason}, Total Elapsed Time: ${elapsedTimeFormatted}`);
 
-                stopTimes[machine][reason].elapsed = elapsedSeconds;
+                stopTimes[machine][reason].elapsed += elapsedSeconds;
                 stopTimes[machine][reason].start = null;
 
                 updateDisplay(machine, reason);
+		updateTotalReasonClock(machine, reason);
                 updateTotalMachineClock(machine);
                 updateButtons(machine, reason, false);
 		
@@ -423,18 +425,56 @@ function updateButtons(machine, activeReason, isRunning) {
 
     // ✅ If the reason is running, update the time in real-time
     if (stopTimes[machine][reason].start) {
-        if (activeTimers[`reason-clock-${machine}-${reason}`]) clearInterval(activeTimers[`reason-clock-${machine}-${reason}`]);
+        // Clear any existing interval before starting a new one
+        if (activeTimers[`reason-clock-${machine}-${reason}`]) {
+            clearInterval(activeTimers[`reason-clock-${machine}-${reason}`]);
+        }
 
+        // ✅ Start the clock for the individual reason
         activeTimers[`reason-clock-${machine}-${reason}`] = setInterval(() => {
             if (stopTimes[machine][reason].start) {
-                const totalElapsed = Math.floor((Date.now() - stopTimes[machine][reason].start) / 1000) + stopTimes[machine][reason].elapsed;
-                document.getElementById(`${machine}-${reason}-time`).textContent = formatTime(totalElapsed);
+                const currentElapsed = Math.floor((Date.now() - stopTimes[machine][reason].start) / 1000);
+                const totalElapsed = currentElapsed + stopTimes[machine][reason].elapsed;
+
+                console.log(`⏳ Updating individual reason clock for ${machine} - ${reason}: ${totalElapsed} seconds`);
+                
+                // ✅ Update the Individual Reason Clock per Stop
+                document.getElementById(`${machine}-${reason}-stop-clock`).textContent = formatTime(currentElapsed);
             }
         }, 1000);
     } else {
-        document.getElementById(`${machine}-${reason}-time`).textContent = formatTime(elapsed);
+        // ✅ Ensure the clock displays the correct time when stopped
+        document.getElementById(`${machine}-${reason}-stop-clock`).textContent = "00:00:00";
     }
 }
+
+function updateTotalReasonClock(machine, reason) {
+    if (activeTimers[`total-reason-clock-${machine}-${reason}`]) {
+        clearInterval(activeTimers[`total-reason-clock-${machine}-${reason}`]); // Clear previous interval
+    }
+
+    activeTimers[`total-reason-clock-${machine}-${reason}`] = setInterval(() => {
+        let totalElapsed = stopTimes[machine][reason]?.elapsed ?? 0;
+
+        if (stopTimes[machine][reason].start) {
+            const currentElapsed = Math.floor((Date.now() - stopTimes[machine][reason].start) / 1000);
+            totalElapsed += currentElapsed;
+        }
+
+        console.log(`⏳ Updating total reason clock for ${machine} - ${reason}: ${totalElapsed} seconds`);
+        
+        document.getElementById(`${machine}-${reason}-time`).textContent = formatTime(totalElapsed);
+
+        // Stop updating if no active start time
+        if (!stopTimes[machine][reason].start) {
+            clearInterval(activeTimers[`total-reason-clock-${machine}-${reason}`]);
+            delete activeTimers[`total-reason-clock-${machine}-${reason}`];
+        }
+    }, 1000);
+}
+
+
+
 
 function updateTotalMachineClock(machine) {
     if (activeTimers[`total-${machine}`]) clearInterval(activeTimers[`total-${machine}`]);
@@ -642,10 +682,82 @@ function formatElapsedTime(seconds) {
 }
 
 
+function showPopupMessage(message) {
+    // Create a popup div
+    const popup = document.createElement("div");
+    popup.style.position = "fixed";
+    popup.style.top = "50%";
+    popup.style.left = "50%";
+    popup.style.transform = "translate(-50%, -50%)";
+    popup.style.backgroundColor = "#fff";
+    popup.style.padding = "20px";
+    popup.style.border = "1px solid #ddd";
+    popup.style.borderRadius = "8px";
+    popup.style.boxShadow = "0 2px 10px rgba(0,0,0,0.2)";
+    popup.style.zIndex = "1000";
+    popup.style.textAlign = "center";
+
+    // Create a text area to display the message
+    const textArea = document.createElement("textarea");
+    textArea.style.width = "100%";
+    textArea.style.height = "100px";
+    textArea.style.marginBottom = "10px";
+    textArea.value = message;
+    textArea.readOnly = true;
+
+    // Create a copy button
+    const copyButton = document.createElement("button");
+    copyButton.textContent = "Copy Message";
+    copyButton.style.padding = "10px 15px";
+    copyButton.style.marginRight = "10px";
+    copyButton.style.backgroundColor = "#27ae60";
+    copyButton.style.color = "white";
+    copyButton.style.border = "none";
+    copyButton.style.borderRadius = "5px";
+    copyButton.style.cursor = "pointer";
+
+    // Create a close button (initially disabled)
+    const closeButton = document.createElement("button");
+    closeButton.textContent = "Close";
+    closeButton.style.padding = "10px 15px";
+    closeButton.style.backgroundColor = "#e74c3c";
+    closeButton.style.color = "white";
+    closeButton.style.border = "none";
+    closeButton.style.borderRadius = "5px";
+    closeButton.style.cursor = "pointer";
+    closeButton.disabled = true; // Initially disabled
+    closeButton.style.opacity = "0.5"; // Make it visually disabled
+
+    // Copy button functionality
+    copyButton.onclick = () => {
+        textArea.select();
+        document.execCommand("copy");
+        alert("Message copied to clipboard!");
+
+        // Enable the close button after copying
+        closeButton.disabled = false;
+        closeButton.style.opacity = "1"; // Make it fully visible
+    };
+
+    // Close button functionality
+    closeButton.onclick = () => {
+        if (!closeButton.disabled) {
+            document.body.removeChild(popup);
+        }
+    };
+
+    // Append elements to popup
+    popup.appendChild(textArea);
+    popup.appendChild(copyButton);
+    popup.appendChild(closeButton);
+
+    // Append popup to body
+    document.body.appendChild(popup);
+}
+
+// Modify the function to show the popup instead of sending a message
 function sendWhatsAppMessage(phoneNumber, message) {
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappURL = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
-    window.open(whatsappURL, "_blank");
+    showPopupMessage(message);
 }
 
 
